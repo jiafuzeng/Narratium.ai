@@ -89,4 +89,3 @@ export function processForHighlight(html: string): string {
   return tagged.replace(/^[\s\r\n]+|[\s\r\n]+$/g, "");
 }
 
-
