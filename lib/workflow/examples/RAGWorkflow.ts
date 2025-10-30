@@ -96,12 +96,18 @@ export class CorrectRAGWorkflow extends BaseWorkflow {
     return {
       id: "correct-rag-workflow",
       name: "Correct RAG Workflow - Early return with background AFTER nodes",
+      // 执行顺序（带记忆的对话）：
+      // userInput → preset → context → memoryRetrieval → worldBook → llm → regex → output │ AFTER: memoryStorage
+      // 设计思路：
+      // - 仅在 llm 节点调用大模型；其余节点用于提示词构建、上下文/记忆注入与后处理
+      // - output 为 EXIT 节点，先向前端返回；memoryStorage 作为 AFTER 节点在后台落库，避免阻塞首屏
       nodes: [
         {
           id: "user-input-1",
           name: "userInput",
           category: NodeCategory.ENTRY,
           next: ["preset-1"],
+          // 初始化运行参数：来自前端/调用方的本次会话配置
           initParams: [
             "characterId", 
             "userInput", 
@@ -118,6 +124,7 @@ export class CorrectRAGWorkflow extends BaseWorkflow {
             "enableMemoryStorage",
           ],
           inputFields: [],
+          // 输出：把所有运行参数写入上下文，供后续节点统一读取
           outputFields: [
             "characterId", 
             "userInput", 
@@ -140,6 +147,7 @@ export class CorrectRAGWorkflow extends BaseWorkflow {
           category: NodeCategory.MIDDLE,
           next: ["context-1"],
           initParams: [],
+          // 载入角色预设/系统提示，形成初版 systemMessage 与 userMessage
           inputFields: ["characterId", "language", "username", "number", "fastModel"],
           outputFields: ["systemMessage", "userMessage", "presetId"],
         },
@@ -149,6 +157,7 @@ export class CorrectRAGWorkflow extends BaseWorkflow {
           category: NodeCategory.MIDDLE,
           next: ["memory-retrieval-1"],
           initParams: [],
+          // 拼接近期对话，产出 conversationContext；并对 userMessage 进行上下文增强
           inputFields: ["userMessage", "characterId", "userInput"],
           outputFields: ["userMessage", "conversationContext"],
         },
@@ -158,6 +167,7 @@ export class CorrectRAGWorkflow extends BaseWorkflow {
           category: NodeCategory.MIDDLE,
           next: ["world-book-1"],
           initParams: [],
+          // 召回长期记忆：将记忆作为 memoryPrompt/追加信息并入 systemMessage
           inputFields: ["characterId", "userInput", "systemMessage", "apiKey", "baseUrl", "language", "maxMemories", "username"],
           outputFields: ["systemMessage", "memoryPrompt"],
         },
@@ -167,9 +177,11 @@ export class CorrectRAGWorkflow extends BaseWorkflow {
           category: NodeCategory.MIDDLE,
           next: ["llm-1"],
           initParams: [],
+          // 世界书筛选：根据当前输入与上下文命中条目，继续完善 systemMessage/userMessage
           inputFields: ["systemMessage", "userMessage", "characterId", "language", "username", "userInput"],
           outputFields: ["systemMessage", "userMessage"],
           inputMapping: {
+            // 将 userInput 映射为 currentUserInput，提高条目匹配准确度
             "userInput": "currentUserInput",
           },
         },
@@ -179,6 +191,7 @@ export class CorrectRAGWorkflow extends BaseWorkflow {
           category: NodeCategory.MIDDLE,
           next: ["regex-1"],
           initParams: [],
+          // 唯一必经的模型调用：以最终提示调用 LLM，得到 llmResponse（可流式）
           inputFields: ["systemMessage", "userMessage", "modelName", "apiKey", "baseUrl", "llmType", "temperature", "language"],
           outputFields: ["llmResponse"],
         },
@@ -188,14 +201,15 @@ export class CorrectRAGWorkflow extends BaseWorkflow {
           category: NodeCategory.MIDDLE,
           next: ["output-1"],
           initParams: [],
+          // 后处理：抽取渲染需要的字段，控制 UI 与下一步交互
           inputFields: ["llmResponse", "characterId"],
           outputFields: ["replacedText", "screenContent", "fullResponse", "nextPrompts", "event"], // 只输出处理后的内容
         },
         {
           id: "output-1",
           name: "output",
-          category: NodeCategory.EXIT, // EXIT: Workflow returns immediately after this node
-          next: [], // No next nodes - workflow completes here for user response
+          category: NodeCategory.EXIT, // EXIT：在此节点立即返回用户响应
+          next: [], // 无后继主线节点——到此为止用户已拿到结果
           initParams: [],
           inputFields: [
             "replacedText", 
@@ -212,16 +226,16 @@ export class CorrectRAGWorkflow extends BaseWorkflow {
             "nextPrompts", 
             "event", 
             "presetId",
-          ], // User receives immediate response with these fields
+          ], // 这些字段将直接返回给前端
         },
         {
           id: "memory-storage-1",
           name: "memoryStorage",
-          category: NodeCategory.AFTER, // AFTER: Executes in background after EXIT nodes complete
-          next: [], // Terminal node in background execution
+          category: NodeCategory.AFTER, // AFTER：在 EXIT 之后后台执行，不阻塞首屏
+          next: [], // 后台分支的终点
           initParams: [],
           inputFields: [
-            // AFTER nodes have access to all data from the main workflow context
+            // AFTER 节点可访问主流程上下文的所有数据
             "characterId",
             "userInput",
             "fullResponse",
@@ -237,7 +251,7 @@ export class CorrectRAGWorkflow extends BaseWorkflow {
             "presetId",
           ],
           outputFields: [
-            // AFTER nodes don't need to output data since user already received response
+            // AFTER 节点无需输出；用户已获得响应
           ],
         },
       ],
