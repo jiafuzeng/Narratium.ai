@@ -205,13 +205,13 @@ export default function CharacterChatPanel({
       // Check if already generated or generating
       const state = tts.getState(lastMessage.id);
       if (state.isGenerating || state.isPlaying || tts.isCached(lastMessage.id)) {
-        console.log('TTS: Skipping generation - already generated or in progress');
+        console.log("TTS: Skipping generation - already generated or in progress");
         return;
       }
 
       // Delay to ensure content is fully rendered
       const timer = setTimeout(() => {
-        console.log('TTS: Auto-generating for message:', lastMessage.id);
+        console.log("TTS: Auto-generating for message:", lastMessage.id);
         tts.generateAndPlay(lastMessage.id, lastMessage.content).catch((error) => {
           console.error("Auto TTS generation failed:", error);
         });

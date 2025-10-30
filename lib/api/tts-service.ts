@@ -130,14 +130,14 @@ export class TTSService {
 
     const result = await response.json();
 
-    console.log('TTS API Response:', result);
+    console.log("TTS API Response:", result);
 
     if (result.code !== 0) {
-      console.error('TTS API Error Details:', {
+      console.error("TTS API Error Details:", {
         code: result.code,
         msg: result.msg,
         workflowId: this.config.workflowId,
-        apiKey: this.config.apiKey.substring(0, 10) + '...'
+        apiKey: this.config.apiKey.substring(0, 10) + "...",
       });
       throw new Error(`TTS task creation failed: ${result.msg} (code: ${result.code})`);
     }
