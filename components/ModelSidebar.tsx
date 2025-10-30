@@ -33,6 +33,7 @@ import { useLanguage } from "@/app/i18n";
 import { trackButtonClick } from "@/utils/google-analytics";
 import { ChatOpenAI } from "@langchain/openai";
 import { ChatOllama } from "@langchain/ollama";
+import TTSSettingsPanel from "@/components/TTSSettingsPanel";
 
 /**
  * Props interface for the ModelSidebar component
@@ -1443,6 +1444,9 @@ export default function ModelSidebar({ isOpen, toggleSidebar }: ModelSidebarProp
               </button>
             </div>
           )}
+
+          {/* TTS Settings Panel */}
+          <TTSSettingsPanel />
         </div>
       </div>
     </div>

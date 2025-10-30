@@ -27,6 +27,7 @@ import { CharacterAvatarBackground } from "@/components/CharacterAvatarBackgroun
 import UserNameSettingModal from "@/components/UserNameSettingModal";
 import { getDisplayUsername, setDisplayUsername } from "@/utils/username-helper";
 import { trackButtonClick, trackFormSubmit } from "@/utils/google-analytics";
+import { useTTS } from "@/hooks/useTTS";
 
 /**
  * API Configuration types
@@ -123,6 +124,19 @@ export default function CharacterChatPanel({
   const [selectedConfigId, setSelectedConfigId] = useState<string>(""); // For the second level dropdown
   const [currentModel, setCurrentModel] = useState<string>(""); // Current active model
 
+  // TTS Configuration states
+  const [ttsApiKey, setTtsApiKey] = useState<string>("");
+  const [ttsEnabled, setTtsEnabled] = useState<boolean>(false);
+  const [ttsAutoPlay, setTtsAutoPlay] = useState<boolean>(true);
+  const [ttsWorkflowId, setTtsWorkflowId] = useState<string>("1983711725981769729");
+
+  // Initialize TTS hook
+  const tts = useTTS({
+    apiKey: ttsApiKey,
+    autoPlay: ttsAutoPlay,
+    workflowId: ttsWorkflowId,
+  });
+
   useEffect(() => {
     const savedStreaming = localStorage.getItem("streamingEnabled");
     if (savedStreaming !== null) {
@@ -151,7 +165,61 @@ export default function CharacterChatPanel({
 
     // Load display username using helper function
     setCurrentDisplayName(getDisplayUsername());
+
+    // Load TTS configuration
+    const savedTtsApiKey = localStorage.getItem("tts_api_key");
+    const savedTtsEnabled = localStorage.getItem("tts_enabled");
+    const savedTtsAutoPlay = localStorage.getItem("tts_auto_play");
+    const savedTtsWorkflowId = localStorage.getItem("tts_workflow_id");
+
+    if (savedTtsApiKey) {
+      setTtsApiKey(savedTtsApiKey);
+    }
+    if (savedTtsEnabled === "true") {
+      setTtsEnabled(true);
+    }
+    if (savedTtsAutoPlay === "false") {
+      setTtsAutoPlay(false);
+    }
+
+    // Auto-migrate old workflow ID to new one
+    if (savedTtsWorkflowId === "1983506334995914754") {
+      const newWorkflowId = "1983711725981769729";
+      setTtsWorkflowId(newWorkflowId);
+      localStorage.setItem("tts_workflow_id", newWorkflowId);
+    } else if (savedTtsWorkflowId) {
+      setTtsWorkflowId(savedTtsWorkflowId);
+    }
   }, []);
+
+  // Auto-generate TTS for new assistant messages
+  useEffect(() => {
+    if (!ttsEnabled || !ttsApiKey || messages.length === 0 || isSending) {
+      return;
+    }
+
+    const lastMessage = messages[messages.length - 1];
+
+    // Only auto-generate for assistant messages
+    if (lastMessage.role === "assistant" && ttsAutoPlay) {
+      // Check if already generated or generating
+      const state = tts.getState(lastMessage.id);
+      if (state.isGenerating || state.isPlaying || tts.isCached(lastMessage.id)) {
+        console.log('TTS: Skipping generation - already generated or in progress');
+        return;
+      }
+
+      // Delay to ensure content is fully rendered
+      const timer = setTimeout(() => {
+        console.log('TTS: Auto-generating for message:', lastMessage.id);
+        tts.generateAndPlay(lastMessage.id, lastMessage.content).catch((error) => {
+          console.error("Auto TTS generation failed:", error);
+        });
+      }, 500);
+
+      return () => clearTimeout(timer);
+    }
+  }, [messages, ttsEnabled, ttsApiKey, ttsAutoPlay, isSending]);
 
   const scrollToBottom = () => {
     const el = scrollRef.current;
@@ -1138,6 +1206,106 @@ export default function CharacterChatPanel({
                             <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
                           </svg>
                         </button>
+                        {/* TTS Play Button - Show for assistant messages when TTS is enabled */}
+                        {message.role === "assistant" && ttsEnabled && ttsApiKey && (
+                          <button
+                            onClick={() => {
+                              const state = tts.getState(message.id);
+                              if (state.isPlaying) {
+                                tts.stop(message.id);
+                                trackButtonClick("page", "TTS停止播放");
+                              } else if (tts.isCached(message.id)) {
+                                tts.play(message.id).catch((error) => {
+                                  console.error("TTS play failed:", error);
+                                });
+                                trackButtonClick("page", "TTS播放");
+                              } else {
+                                tts.generateAndPlay(message.id, message.content).catch((error) => {
+                                  console.error("TTS generation failed:", error);
+                                });
+                                trackButtonClick("page", "TTS生成并播放");
+                              }
+                            }}
+                            disabled={tts.getState(message.id).isGenerating}
+                            className={`ml-1 w-6 h-6 flex items-center justify-center bg-[#1c1c1c] rounded-lg border shadow-inner transition-all duration-300 group relative ${
+                              tts.getState(message.id).isPlaying
+                                ? "text-blue-400 hover:text-blue-300 border-blue-400/60 hover:border-blue-300/70 hover:shadow-[0_0_8px_rgba(59,130,246,0.4)]"
+                                : tts.getState(message.id).isGenerating
+                                  ? "text-[#8a8a8a] border-[#333333] cursor-not-allowed"
+                                  : "text-[#a18d6f] hover:text-[#60a5fa] border-[#333333] hover:border-[#444444] hover:shadow-[0_0_8px_rgba(96,165,250,0.4)]"
+                            }`}
+                            data-tooltip={
+                              tts.getState(message.id).isGenerating
+                                ? "生成语音中..."
+                                : tts.getState(message.id).isPlaying
+                                  ? "停止播放"
+                                  : tts.getState(message.id).error
+                                    ? tts.getState(message.id).error
+                                    : tts.isCached(message.id)
+                                      ? "播放语音"
+                                      : "生成并播放语音"
+                            }
+                          >
+                            <div className="absolute -top-8 left-1/2 -translate-x-1/2 px-2 py-1 bg-[#2a261f] text-[#f4e8c1] text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap border border-[#534741] pointer-events-none">
+                              {tts.getState(message.id).isGenerating ? (
+                                `生成中... ${Math.round(tts.getState(message.id).progress)}%`
+                              ) : tts.getState(message.id).isPlaying ? (
+                                "停止播放"
+                              ) : tts.getState(message.id).error ? (
+                                tts.getState(message.id).error
+                              ) : tts.isCached(message.id) ? (
+                                "播放语音"
+                              ) : (
+                                "生成并播放语音"
+                              )}
+                            </div>
+                            {tts.getState(message.id).isGenerating ? (
+                              // Loading animation
+                              <svg
+                                className="animate-spin h-3 w-3"
+                                xmlns="http://www.w3.org/2000/svg"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                              >
+                                <circle
+                                  className="opacity-25"
+                                  cx="12"
+                                  cy="12"
+                                  r="10"
+                                  stroke="currentColor"
+                                  strokeWidth="4"
+                                ></circle>
+                                <path
+                                  className="opacity-75"
+                                  fill="currentColor"
+                                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                                ></path>
+                              </svg>
+                            ) : tts.getState(message.id).isPlaying ? (
+                              // Stop icon
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="12"
+                                height="12"
+                                fill="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <rect x="6" y="6" width="12" height="12" rx="1" />
+                              </svg>
+                            ) : (
+                              // Play icon
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="12"
+                                height="12"
+                                fill="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path d="M8 5v14l11-7z" />
+                              </svg>
+                            )}
+                          </button>
+                        )}
                       </div>
                     </div>
 
