@@ -114,7 +114,6 @@ export default function CharacterPage() {
 
   // Add loading phase tracking for better user feedback
   const [loadingPhase, setLoadingPhase] = useState<string>("");
-
   // Add error toast state
   const [errorToast, setErrorToast] = useState({
     isVisible: false,

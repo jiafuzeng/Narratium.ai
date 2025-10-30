@@ -51,7 +51,7 @@ export class WorldBookNode extends NodeBase {
       username,
       charName,
     ) as { systemMessage: string; userMessage: string };
-
+    debugger;
     return {
       systemMessage: result.systemMessage, // 注入世界书后的系统提示
       userMessage: result.userMessage, // 注入世界书后的用户提示
